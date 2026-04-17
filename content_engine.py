@@ -55,13 +55,58 @@ def extract_json(raw: str) -> dict:
     raise ValueError(f"❌ Could not parse JSON from model response:\n\n{raw}")
 
 
+def clean_tag_length(tag: str, max_len: int = 20) -> str:
+    tag = " ".join(str(tag).strip().split())
+    if not tag:
+        return ""
+    if len(tag) <= max_len:
+        return tag
+
+    words = tag.split()
+    trimmed_words = []
+
+    for word in words:
+        candidate = " ".join(trimmed_words + [word])
+        if len(candidate) <= max_len:
+            trimmed_words.append(word)
+        else:
+            break
+
+    if trimmed_words:
+        return " ".join(trimmed_words).strip(" ,.-")
+
+    return tag[:max_len].rstrip(" ,.-")
+
+
+def looks_robotic_tag(tag: str) -> bool:
+    if not tag:
+        return True
+
+    # Long single-token tags like "mindfulnessforkids" or
+    # "movementforconfidence" look robotic and weak on Etsy.
+    if " " not in tag and "-" not in tag and len(tag) >= 16:
+        return True
+
+    return False
+
+
 def normalize_tags(tags: List[str], age_group: str) -> List[str]:
     cleaned_tags = []
 
     for t in tags:
-        tag = str(t).strip().lower()[:20]
-        if tag and tag not in cleaned_tags:
+        tag = clean_tag_length(str(t).strip().lower(), 20)
+
+        if not tag:
+            continue
+
+        if looks_robotic_tag(tag):
+            continue
+
+        if tag not in cleaned_tags:
             cleaned_tags.append(tag)
+
+        if len(cleaned_tags) == 13:
+            break
 
     age_fallbacks = {
         "Toddler": [
@@ -159,8 +204,8 @@ def normalize_tags(tags: List[str], age_group: str) -> List[str]:
     fallbacks = age_fallbacks.get(age_group, age_fallbacks["All Ages"])
 
     for fallback in fallbacks:
-        fallback = fallback[:20].lower().strip()
-        if fallback not in cleaned_tags:
+        fallback = clean_tag_length(fallback.lower().strip(), 20)
+        if fallback and fallback not in cleaned_tags:
             cleaned_tags.append(fallback)
         if len(cleaned_tags) == 13:
             break

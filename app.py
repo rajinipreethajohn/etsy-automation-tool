@@ -71,73 +71,15 @@ def auto_height(text: str, min_height: int = 120, line_px: int = 32, chars_per_l
 
     return max(min_height, wrapped_lines * line_px)
 
-def smart_trim_tag(tag: str, max_len: int = 20) -> str:
-    import re
-
-    tag = re.sub(r"\s+", " ", tag.strip())
-    if not tag:
-        return ""
-
-    if len(tag) <= max_len:
-        return tag
-
-    words = tag.split()
-    trimmed_words = []
-
-    for word in words:
-        candidate = " ".join(trimmed_words + [word])
-        if len(candidate) <= max_len:
-            trimmed_words.append(word)
-        else:
-            break
-
-    if trimmed_words:
-        return " ".join(trimmed_words).strip(" ,.-")
-
-    fallback = tag[:max_len].rstrip()
-    if " " in fallback:
-        fallback = fallback.rsplit(" ", 1)[0]
-    return fallback.strip(" ,.-")
-
-
-def normalize_etsy_tags(tag_items):
-    cleaned = []
-    seen = set()
-
-    for tag in tag_items:
-        tag = tag.strip()
-
-        if not tag:
-            continue
-
-        tag = smart_trim_tag(tag, 20)
-
-        if not tag:
-            continue
-
-        # Drop long single-token tags like "mindfulnessforkids" or
-        # "earlychildhoodeducat" because they look truncated/robotic.
-        # Let clean fallback tags replace them later.
-        if " " not in tag and "-" not in tag and len(tag) >= 16:
-            continue
-
-        key = tag.lower()
-
-        if key not in seen:
-            cleaned.append(tag)
-            seen.add(key)
-
-        if len(cleaned) == 13:
-            break
-
-    return cleaned
-
-
 def tag_status(tag_items):
-    too_long = [t for t in tag_items if len(t.strip()) > 20]
+    cleaned = [t.strip() for t in tag_items if t and t.strip()]
+    lowered = [t.lower() for t in cleaned]
+    duplicates = sorted({t for t in lowered if lowered.count(t) > 1})
+    too_long = [t for t in cleaned if len(t) > 20]
     return {
-        "count": len(tag_items),
+        "count": len(cleaned),
         "too_long": too_long,
+        "duplicates": duplicates,
     }
 
 def apply_template(template_name: str):
@@ -247,45 +189,21 @@ if "variants" in st.session_state and st.session_state.variants:
                 )
 
                 raw_tag_items = [t.strip() for t in tags_text.split(",") if t.strip()]
-                tag_items = normalize_etsy_tags(raw_tag_items)
-
-                if len(tag_items) < 13:
-                    short_fallbacks = [
-                        "kids yoga",
-                        "mindful play",
-                        "screen free",
-                        "calm corner",
-                        "movement cards",
-                        "travel activity",
-                        "wellness gift",
-                        "family activity",
-                        "homeschool",
-                        "yoga flashcards",
-                        "confidence boost",
-                        "quiet time",
-                        "kids wellness",
-                    ]
-                    seen = {tag.lower() for tag in tag_items}
-                    for fallback in short_fallbacks:
-                        if fallback.lower() not in seen:
-                            tag_items.append(fallback)
-                            seen.add(fallback.lower())
-                        if len(tag_items) == 13:
-                            break
-
                 status = tag_status(raw_tag_items)
+                tag_items = raw_tag_items[:13]
 
                 st.caption(f"Tags: {len(tag_items)}/13")
                 st.caption("Final Etsy tags:")
                 st.code("\n".join([f"{tag} ({len(tag)}/20)" for tag in tag_items]), language=None)
 
                 if status["too_long"]:
-                    st.warning(
-                        "Some tags were longer than Etsy's 20-character limit and were trimmed automatically."
-                    )
+                    st.warning("Some tags are longer than Etsy's 20-character limit. Shorten them before publishing.")
+
+                if status["duplicates"]:
+                    st.warning("Some tags are duplicated. Consider making them more varied.")
 
                 if status["count"] > 13:
-                    st.warning("Only the first 13 unique tags will be kept for Etsy.")
+                    st.warning("Only the first 13 tags will be kept for Etsy.")
 
                 etsy_desc_val = result.get("etsy_description", "")
                 etsy_description = st.text_area(
