@@ -8,6 +8,59 @@ st.title("🛍️ Etsy Automation Tool")
 st.caption("Generate → Review → Edit → Export")
 
 
+# ---------- Templates ----------
+templates = {
+    "Custom": {
+        "product_name": "",
+        "age_group": "Toddler",
+        "product_type": "Yoga Flashcards",
+        "angle": "",
+        "description": "",
+        "keywords": "",
+    },
+    "Toddler Deck": {
+        "product_name": "Toddler Yoga Cards",
+        "age_group": "Toddler",
+        "product_type": "Yoga Flashcards",
+        "angle": "Screen-Free Calm Play",
+        "description": "Mindful yoga cards designed for toddlers ages 1-3.",
+        "keywords": "toddler yoga, mindful play, screen free toddler, calm corner, movement",
+    },
+    "Early Childhood Deck": {
+        "product_name": "Early Childhood Yoga Cards",
+        "age_group": "Early Childhood",
+        "product_type": "Yoga Flashcards",
+        "angle": "Learning Through Movement",
+        "description": "Yoga cards for ages 4-7 supporting movement and focus.",
+        "keywords": "kids yoga, ages 4-7, mindfulness kids, homeschool, focus",
+    },
+    "Tween Deck": {
+        "product_name": "Tween Yoga Cards",
+        "age_group": "Tween",
+        "product_type": "Yoga Flashcards",
+        "angle": "Confidence & Wellness",
+        "description": "Tween yoga cards for ages 8-12 building confidence and calm.",
+        "keywords": "tween yoga, confidence, mindfulness, screen free tween, growing kids",
+    },
+    "Teen Deck": {
+        "product_name": "Teen Yoga Cards",
+        "age_group": "Teen",
+        "product_type": "Yoga Flashcards",
+        "angle": "Stress Relief & Strength",
+        "description": "Teen yoga cards for stress relief, mobility, and confidence.",
+        "keywords": "teen yoga, stress relief, teen wellness, confidence, posture",
+    },
+    "Bundle": {
+        "product_name": "Kids Yoga Card Bundle",
+        "age_group": "All Ages",
+        "product_type": "Yoga Flashcard Bundle",
+        "angle": "Grow With Your Child",
+        "description": "Bundle of yoga cards covering multiple childhood stages.",
+        "keywords": "yoga cards kids, family wellness, homeschool, gift, mindfulness",
+    },
+}
+
+
 # ---------- Helpers ----------
 def auto_height(text: str, min_height: int = 120, line_px: int = 30) -> int:
     text = text or ""
@@ -16,20 +69,84 @@ def auto_height(text: str, min_height: int = 120, line_px: int = 30) -> int:
     return max(min_height, approx_wrapped_lines * line_px)
 
 
+def apply_template(template_name: str):
+    selected = templates[template_name]
+    st.session_state["product_name_input"] = selected["product_name"]
+    st.session_state["age_group_input"] = selected["age_group"]
+    st.session_state["product_type_input"] = selected["product_type"]
+    st.session_state["angle_input"] = selected["angle"]
+    st.session_state["description_input"] = selected["description"]
+    st.session_state["keywords_input"] = selected["keywords"]
+
+
+# ---------- Session defaults ----------
+defaults = {
+    "product_name_input": "",
+    "age_group_input": "Toddler",
+    "product_type_input": "Yoga Flashcards",
+    "angle_input": "",
+    "description_input": "",
+    "keywords_input": "",
+}
+
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+
+# ---------- Template Picker ----------
+template_choice = st.selectbox(
+    "Choose Template",
+    list(templates.keys()),
+    key="template_choice",
+)
+
+if st.button("Apply Template"):
+    apply_template(template_choice)
+    st.rerun()
+
+
 # ---------- Input Form ----------
+age_group_options = [
+    "Toddler",
+    "Early Childhood",
+    "Tween",
+    "Teen",
+    "All Ages"
+]
+
 with st.form("generator_form"):
-    product_name = st.text_input("Product Name", "Tween Yoga Cards")
-    age_group = st.selectbox("Age Group", ["Toddler", "Early Childhood", "Tween", "Teen"])
-    product_type = st.text_input("Product Type", "Yoga Flashcards")
-    angle = st.text_input("Marketing Angle", "Screen-Free Activity")
+    product_name = st.text_input(
+        "Product Name",
+        key="product_name_input",
+    )
+
+    age_group = st.selectbox(
+        "Age Group",
+        age_group_options,
+        index=age_group_options.index(st.session_state["age_group_input"]),
+        key="age_group_input",
+    )
+
+    product_type = st.text_input(
+        "Product Type",
+        key="product_type_input",
+    )
+
+    angle = st.text_input(
+        "Marketing Angle",
+        key="angle_input",
+    )
+
     description = st.text_area(
         "Short Description",
-        "Mindful yoga cards for kids.",
+        key="description_input",
         height=120,
     )
+
     keywords = st.text_input(
         "Keywords (comma separated)",
-        "kids yoga, mindfulness, calm corner",
+        key="keywords_input",
     )
 
     submitted = st.form_submit_button("Generate Content")
@@ -114,7 +231,6 @@ if "result" in st.session_state and st.session_state.result is not None:
             key="ig_caption",
         )
 
-    # Build reviewed/exportable data
     keyword_list = [k.strip() for k in keywords.split(",") if k.strip()]
 
     reviewed_data = {
