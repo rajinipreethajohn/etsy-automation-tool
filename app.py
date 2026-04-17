@@ -1,14 +1,14 @@
+import time
 import json
 import streamlit as st
-from content_engine import generate_campaign
+from content_engine import generate_campaign_variants
 
 st.set_page_config(page_title="Etsy Automation Tool", layout="wide")
 
 st.title("🛍️ Etsy Automation Tool")
-st.caption("Generate → Review → Edit → Export")
+st.caption("Generate → Review → Compare Variants → Export")
 
 
-# ---------- Templates ----------
 templates = {
     "Custom": {
         "product_name": "",
@@ -61,13 +61,79 @@ templates = {
 }
 
 
-# ---------- Helpers ----------
-def auto_height(text: str, min_height: int = 120, line_px: int = 30) -> int:
+def auto_height(text: str, min_height: int = 120, line_px: int = 32, chars_per_line: int = 55) -> int:
     text = text or ""
     lines = text.splitlines() or [""]
-    approx_wrapped_lines = sum(max(1, len(line) // 70 + 1) for line in lines)
-    return max(min_height, approx_wrapped_lines * line_px)
+    wrapped_lines = 0
 
+    for line in lines:
+        wrapped_lines += max(1, (len(line) // chars_per_line) + 1)
+
+    return max(min_height, wrapped_lines * line_px)
+
+def smart_trim_tag(tag: str, max_len: int = 20) -> str:
+    import re
+
+    tag = tag.strip()
+
+    if len(tag) <= max_len:
+        return tag
+
+    # clean weird punctuation / double spaces
+    tag = re.sub(r"\s+", " ", tag)
+
+    words = tag.split()
+
+    trimmed = ""
+
+    for word in words:
+        candidate = f"{trimmed} {word}".strip()
+
+        if len(candidate) <= max_len:
+            trimmed = candidate
+        else:
+            break
+
+    # If nothing fits, keep first word only if clean
+    if not trimmed and words:
+        trimmed = words[0][:max_len]
+
+    return trimmed.strip()
+
+
+def normalize_etsy_tags(tag_items):
+    cleaned = []
+    seen = set()
+
+    for tag in tag_items:
+        tag = tag.strip()
+
+        if not tag:
+            continue
+
+        tag = smart_trim_tag(tag, 20)
+
+        if not tag:
+            continue
+
+        key = tag.lower()
+
+        if key not in seen:
+            cleaned.append(tag)
+            seen.add(key)
+
+        if len(cleaned) == 13:
+            break
+
+    return cleaned
+
+
+def tag_status(tag_items):
+    too_long = [t for t in tag_items if len(t.strip()) > 20]
+    return {
+        "count": len(tag_items),
+        "too_long": too_long,
+    }
 
 def apply_template(template_name: str):
     selected = templates[template_name]
@@ -79,7 +145,6 @@ def apply_template(template_name: str):
     st.session_state["keywords_input"] = selected["keywords"]
 
 
-# ---------- Session defaults ----------
 defaults = {
     "product_name_input": "",
     "age_group_input": "Toddler",
@@ -94,7 +159,6 @@ for key, value in defaults.items():
         st.session_state[key] = value
 
 
-# ---------- Template Picker ----------
 template_choice = st.selectbox(
     "Choose Template",
     list(templates.keys()),
@@ -106,157 +170,158 @@ if st.button("Apply Template"):
     st.rerun()
 
 
-# ---------- Input Form ----------
-age_group_options = [
-    "Toddler",
-    "Early Childhood",
-    "Tween",
-    "Teen",
-    "All Ages"
-]
+age_group_options = ["Toddler", "Early Childhood", "Tween", "Teen", "All Ages", "All 4 Decks"]
 
 with st.form("generator_form"):
-    product_name = st.text_input(
-        "Product Name",
-        key="product_name_input",
-    )
-
+    product_name = st.text_input("Product Name", key="product_name_input")
     age_group = st.selectbox(
         "Age Group",
         age_group_options,
         index=age_group_options.index(st.session_state["age_group_input"]),
         key="age_group_input",
     )
+    product_type = st.text_input("Product Type", key="product_type_input")
+    angle = st.text_input("Marketing Angle", key="angle_input")
+    description = st.text_area("Short Description", key="description_input", height=120)
+    keywords = st.text_input("Keywords (comma separated)", key="keywords_input")
 
-    product_type = st.text_input(
-        "Product Type",
-        key="product_type_input",
-    )
-
-    angle = st.text_input(
-        "Marketing Angle",
-        key="angle_input",
-    )
-
-    description = st.text_area(
-        "Short Description",
-        key="description_input",
-        height=120,
-    )
-
-    keywords = st.text_input(
-        "Keywords (comma separated)",
-        key="keywords_input",
-    )
-
-    submitted = st.form_submit_button("Generate Content")
+    submitted = st.form_submit_button("Generate 3 Variants")
 
 
-# ---------- Generate ----------
 if submitted:
     kw_list = [k.strip() for k in keywords.split(",") if k.strip()]
 
-    with st.spinner("Generating content with Ollama..."):
-        st.session_state.result = generate_campaign(
-            product_name,
-            age_group,
-            product_type,
-            kw_list,
-            angle,
-            description,
+    start_time = time.time()
+
+    with st.spinner("Generating 3 variants with Ollama..."):
+        st.session_state.variants = generate_campaign_variants(
+            product_name=product_name,
+            age_group=age_group,
+            product_type=product_type,
+            keywords=kw_list,
+            angle=angle,
+            description=description,
         )
 
+    elapsed = time.time() - start_time
+    st.session_state.generation_time = elapsed
 
-# ---------- Output ----------
-if "result" in st.session_state and st.session_state.result is not None:
-    result = st.session_state.result
-    st.success("Content generated. Review and edit below.")
 
-    col1, col2 = st.columns(2)
+if "variants" in st.session_state and st.session_state.variants:
+    st.success("3 variants generated. Compare and choose your favorite.")
 
-    with col1:
-        st.header("Etsy")
+if "generation_time" in st.session_state:
+    st.caption(f"Generated in {st.session_state.generation_time:.1f} seconds")
 
-        etsy_title_val = result.get("etsy_title", "")
-        etsy_title = st.text_area(
-            "Etsy Title",
-            etsy_title_val,
-            height=auto_height(etsy_title_val, 80),
-            key="etsy_title",
-        )
-        st.caption(f"Characters: {len(etsy_title)}/140")
+    tabs = st.tabs(list(st.session_state.variants.keys()))
 
-        tags_val = ", ".join(result.get("etsy_tags", []))
-        tags_text = st.text_area(
-            "Etsy Tags (comma separated)",
-            tags_val,
-            height=auto_height(tags_val, 200),
-            key="etsy_tags",
-        )
-        tag_items = [t.strip() for t in tags_text.split(",") if t.strip()]
-        st.caption(f"Tags: {len(tag_items[:13])}/13")
+    for tab_name, tab in zip(st.session_state.variants.keys(), tabs):
+        with tab:
+            result = st.session_state.variants[tab_name]
 
-        etsy_desc_val = result.get("etsy_description", "")
-        etsy_description = st.text_area(
-            "Etsy Description",
-            etsy_desc_val,
-            height=auto_height(etsy_desc_val, 260),
-            key="etsy_desc",
-        )
+            col1, col2 = st.columns(2)
 
-    with col2:
-        st.header("Pinterest + Instagram")
+            with col1:
+                st.subheader("Etsy")
 
-        pin_title_val = result.get("pinterest_title", "")
-        pinterest_title = st.text_area(
-            "Pinterest Title",
-            pin_title_val,
-            height=auto_height(pin_title_val, 80),
-            key="pin_title",
-        )
+                etsy_title_val = result.get("etsy_title", "")
+                etsy_title = st.text_area(
+                    "Etsy Title",
+                    etsy_title_val,
+                    height=auto_height(etsy_title_val, 80),
+                    key=f"{tab_name}_etsy_title",
+                )
+                st.caption(f"Characters: {len(etsy_title)}/140")
 
-        pin_desc_val = result.get("pinterest_description", "")
-        pinterest_description = st.text_area(
-            "Pinterest Description",
-            pin_desc_val,
-            height=auto_height(pin_desc_val, 220),
-            key="pin_desc",
-        )
+                tags_val = ", ".join(result.get("etsy_tags", []))
+                tags_text = st.text_area(
+                    "Etsy Tags (comma separated)",
+                    tags_val,
+                    height=auto_height(tags_val, 160),
+                    key=f"{tab_name}_etsy_tags",
+                )
 
-        ig_val = result.get("instagram_caption", "")
-        instagram_caption = st.text_area(
-            "Instagram Caption",
-            ig_val,
-            height=auto_height(ig_val, 240),
-            key="ig_caption",
-        )
+                raw_tag_items = [t.strip() for t in tags_text.split(",") if t.strip()]
+                tag_items = normalize_etsy_tags(raw_tag_items)
+                status = tag_status(raw_tag_items)
 
-    keyword_list = [k.strip() for k in keywords.split(",") if k.strip()]
+                st.caption(f"Tags: {len(tag_items)}/13")
 
-    reviewed_data = {
-        "product_name": product_name,
-        "age_group": age_group,
-        "product_type": product_type,
-        "marketing_angle": angle,
-        "keywords": keyword_list,
-        "etsy_title": etsy_title,
-        "etsy_tags": tag_items[:13],
-        "etsy_description": etsy_description,
-        "pinterest_title": pinterest_title,
-        "pinterest_description": pinterest_description,
-        "instagram_caption": instagram_caption,
-    }
+                for tag in tag_items:
+                    st.caption(f"{tag} ({len(tag)}/20)")
 
-    json_output = json.dumps(reviewed_data, indent=2, ensure_ascii=False)
+                if status["too_long"]:
+                    st.warning(
+                        "Some tags were longer than Etsy's 20-character limit and were trimmed automatically."
+                    )
 
-    txt_output = f"""
+                if status["count"] > 13:
+                    st.warning("Only the first 13 unique tags will be kept for Etsy.")
+
+                etsy_desc_val = result.get("etsy_description", "")
+                etsy_description = st.text_area(
+                    "Etsy Description",
+                    etsy_desc_val,
+                    height=auto_height(etsy_desc_val, 280),
+                    key=f"{tab_name}_etsy_desc",
+                )
+
+            with col2:
+                st.subheader("Pinterest + Instagram")
+
+                pin_title_val = result.get("pinterest_title", "")
+                pinterest_title = st.text_area(
+                    "Pinterest Title",
+                    pin_title_val,
+                    height=auto_height(pin_title_val, 80),
+                    key=f"{tab_name}_pin_title",
+                )
+
+                pin_desc_val = result.get("pinterest_description", "")
+                pinterest_description = st.text_area(
+                "Pinterest Description",
+                pin_desc_val,
+                height=auto_height(pin_desc_val, min_height=260, line_px=32, chars_per_line=55),
+                key=f"{tab_name}_pin_desc",
+                )
+
+                ig_val = result.get("instagram_caption", "")
+                instagram_caption = st.text_area(
+                "Instagram Caption",
+                ig_val,
+                height=auto_height(ig_val, min_height=320, line_px=34, chars_per_line=50),
+                key=f"{tab_name}_ig_caption",
+                )
+
+            reviewed_data = {
+                "variant": tab_name,
+                "product_name": product_name,
+                "age_group": age_group,
+                "product_type": product_type,
+                "marketing_angle": angle,
+                "keywords": [k.strip() for k in keywords.split(",") if k.strip()],
+                "etsy_title": etsy_title,
+                "etsy_tags": tag_items[:13],
+                "etsy_description": etsy_description,
+                "pinterest_title": pinterest_title,
+                "pinterest_description": pinterest_description,
+                "instagram_caption": instagram_caption,
+            }
+
+            json_output = json.dumps(reviewed_data, indent=2, ensure_ascii=False)
+
+            txt_output = f"""
+VARIANT
+-------
+{tab_name}
+
 PRODUCT
 -------
 Product Name: {product_name}
 Age Group: {age_group}
 Product Type: {product_type}
 Marketing Angle: {angle}
-Keywords: {", ".join(keyword_list)}
+Keywords: {keywords}
 
 ETSY
 ----
@@ -283,25 +348,22 @@ Caption:
 {instagram_caption}
 """.strip()
 
-    st.divider()
-    d1, d2 = st.columns(2)
+            d1, d2 = st.columns(2)
 
-    with d1:
-        st.download_button(
-            label="Download JSON",
-            data=json_output,
-            file_name="etsy_campaign.json",
-            mime="application/json",
-        )
+            with d1:
+                st.download_button(
+                    label=f"Download {tab_name} JSON",
+                    data=json_output,
+                    file_name=f"{tab_name.lower().replace(' ', '_')}_campaign.json",
+                    mime="application/json",
+                    key=f"{tab_name}_json_download",
+                )
 
-    with d2:
-        st.download_button(
-            label="Download TXT",
-            data=txt_output,
-            file_name="etsy_campaign.txt",
-            mime="text/plain",
-        )
-
-elif "result" in st.session_state and st.session_state.result is None:
-    st.error("No content was returned from generate_campaign(). Check content_engine.py")
-    st.stop()
+            with d2:
+                st.download_button(
+                    label=f"Download {tab_name} TXT",
+                    data=txt_output,
+                    file_name=f"{tab_name.lower().replace(' ', '_')}_campaign.txt",
+                    mime="text/plain",
+                    key=f"{tab_name}_txt_download",
+                )

@@ -9,8 +9,8 @@ OLLAMA_MODEL = "llama3.1:latest"
 def clean_keywords(keywords: List[str]) -> List[str]:
     return [k.strip() for k in keywords if k and k.strip()]
 
+
 def call_ollama(prompt: str) -> str:
-    """Call local Ollama API and return the response text."""
     payload = {
         "model": OLLAMA_MODEL,
         "prompt": prompt,
@@ -19,7 +19,7 @@ def call_ollama(prompt: str) -> str:
         "options": {
             "temperature": 0.8,
             "top_p": 0.9,
-        }
+        },
     }
 
     try:
@@ -27,72 +27,171 @@ def call_ollama(prompt: str) -> str:
         response.raise_for_status()
         return response.json().get("response", "").strip()
     except requests.exceptions.ConnectionError:
-        raise ConnectionError(
-            "❌ Cannot connect to Ollama. Make sure Ollama is running."
-        )
+        raise ConnectionError("❌ Cannot connect to Ollama. Make sure Ollama is running.")
     except requests.exceptions.Timeout:
-        raise TimeoutError(
-            "❌ Ollama took too long to respond. Try a smaller model or shorter prompt."
-        )
+        raise TimeoutError("❌ Ollama took too long to respond. Try a smaller model or shorter prompt.")
 
 
 def extract_json(raw: str) -> dict:
-    """Robustly extract JSON from model output."""
     cleaned = raw.strip()
 
     if cleaned.startswith("```"):
         cleaned = cleaned.replace("```json", "").replace("```", "").strip()
 
-    # Try direct parse first
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
 
-    # Fallback: extract first JSON object
     start = cleaned.find("{")
     end = cleaned.rfind("}") + 1
     if start != -1 and end > start:
         candidate = cleaned[start:end]
         try:
             return json.loads(candidate)
-        except json.JSONDecodeError as e:
-            raise ValueError(
-                f"❌ Could not parse JSON from model response.\n\n"
-                f"Candidate JSON:\n{candidate}\n\n"
-                f"Parser error: {e}"
-            )
+        except json.JSONDecodeError:
+            pass
 
     raise ValueError(f"❌ Could not parse JSON from model response:\n\n{raw}")
 
 
-def generate_campaign(
+def normalize_tags(tags: List[str], age_group: str) -> List[str]:
+    cleaned_tags = []
+
+    for t in tags:
+        tag = str(t).strip().lower()[:20]
+        if tag and tag not in cleaned_tags:
+            cleaned_tags.append(tag)
+
+    age_fallbacks = {
+        "Toddler": [
+            "toddler yoga",
+            "mindful play",
+            "screen free",
+            "calm corner",
+            "movement cards",
+            "toddler activity",
+            "kids yoga cards",
+            "travel activity",
+            "mindfulness kids",
+            "wellness gift",
+            "quiet time",
+            "family activity",
+            "sensory play",
+        ],
+        "Early Childhood": [
+            "kids yoga",
+            "ages 4 7",
+            "mindfulness kids",
+            "homeschool",
+            "screen free",
+            "calm corner",
+            "yoga flashcards",
+            "movement break",
+            "focus activity",
+            "travel activity",
+            "wellness gift",
+            "classroom movement",
+            "mindful play",
+        ],
+        "Tween": [
+            "tween yoga",
+            "tween mindfulness",
+            "screen free tween",
+            "confidence boost",
+            "calm corner",
+            "growing kids",
+            "movement break",
+            "wellness gift",
+            "yoga flashcards",
+            "homeschool",
+            "travel activity",
+            "mindful play",
+            "kids yoga cards",
+        ],
+        "Teen": [
+            "teen yoga",
+            "stress relief",
+            "teen wellness",
+            "confidence boost",
+            "posture support",
+            "movement break",
+            "wellness gift",
+            "yoga flashcards",
+            "mindfulness teens",
+            "travel activity",
+            "screen free",
+            "self care teens",
+            "mobility work",
+        ],
+        "All Ages": [
+            "kids yoga bundle",
+            "all ages yoga",
+            "family wellness",
+            "mindfulness kids",
+            "screen free",
+            "homeschool",
+            "travel activity",
+            "yoga flashcards",
+            "wellness gift",
+            "family activity",
+            "grow with child",
+            "movement cards",
+            "mindful play",
+        ],
+        "All 4 Decks": [
+            "kids yoga bundle",
+            "4 deck bundle",
+            "all ages yoga",
+            "family wellness",
+            "screen free",
+            "homeschool",
+            "travel activity",
+            "mindfulness kids",
+            "yoga flashcards",
+            "wellness gift",
+            "movement cards",
+            "family activity",
+            "grow with child",
+        ],
+    }
+
+    fallbacks = age_fallbacks.get(age_group, age_fallbacks["All Ages"])
+
+    for fallback in fallbacks:
+        fallback = fallback[:20].lower().strip()
+        if fallback not in cleaned_tags:
+            cleaned_tags.append(fallback)
+        if len(cleaned_tags) == 13:
+            break
+
+    return cleaned_tags[:13]
+
+
+def build_prompt(
     product_name: str,
     age_group: str,
     product_type: str,
-    keywords: List[str],
+    keyword_line: str,
     angle: str,
     description: str,
-) -> Dict[str, object]:
-    keywords = clean_keywords(keywords)
-    keyword_line = ", ".join(keywords) if keywords else "kids yoga, mindfulness, screen-free activity"
+    style_name: str,
+    style_instructions: str,
+) -> str:
+    return f"""You are a top-performing Etsy conversion copywriter for premium children's wellness products.
 
-    prompt = f"""You are a top-performing Etsy conversion copywriter for premium children's wellness products.
-You write copy that sounds warm, emotionally intelligent, specific, and giftable.
-Avoid generic phrases, filler, repetition, and bland wording.
-Every output should feel polished, natural, and worth paying for.
-
-Brand tone:
+Brand voice:
 - warm
 - mindful
+- emotionally intelligent
 - premium but approachable
 - parent-friendly
-- encouraging, not pushy
-- emotionally resonant
 - never robotic
 
-Your goal:
-Create high-converting platform-specific content for this product that helps parents imagine buying it for their child.
+Style mode: {style_name}
+
+Style instructions:
+{style_instructions}
 
 Product details:
 - Name: {product_name}
@@ -105,6 +204,9 @@ Product details:
 Return ONLY raw JSON.
 Do not use markdown code fences.
 Do not include any explanation before or after the JSON.
+All string values must be valid JSON strings.
+Escape line breaks as \\n inside JSON strings.
+etsy_tags must contain exactly 13 items.
 
 Return exactly this JSON structure:
 
@@ -117,12 +219,10 @@ Return exactly this JSON structure:
   "instagram_caption": "Instagram caption"
 }}
 
-Rules for each field:
-
+Rules:
 1. etsy_title
 - under 140 characters
 - clear and searchable
-- include product type, age group, and strongest buyer keywords
 - should sound like a real Etsy listing, not keyword stuffing
 
 2. etsy_tags
@@ -130,72 +230,68 @@ Rules for each field:
 - each tag under 20 characters
 - all lowercase
 - high buyer intent
-- focus on relevant search phrases, not vague terms
-- avoid weak tags like "parenting tips" or "self-help tools"
 - do not repeat tags
-- do not use duplicate words unless necessary
-- avoid generic tags like "yoga cards" more than once
-- tags must be high buyer intent and varied
-- prefer specific searchable phrases over broad generic terms
+- avoid weak generic tags
 
 3. etsy_description
 - 220 to 350 words
-- open with a strong emotional hook for parents
+- open with a strong hook
 - clearly explain benefits and use cases
-- include natural keyword usage
-- mention scenarios like calm corner, homeschool, screen-free time, travel, mindful routines, family bonding when relevant
 - use short paragraphs
 - use simple markdown bullet points for benefits
-- sound warm, useful, and giftable
 - end with a gentle call to action
 
 4. pinterest_title
 - under 100 characters
-- searchable, clickable, curiosity-driven
-- should feel like something a parent would want to save
+- searchable and clickable
 
 5. pinterest_description
 - 100 to 180 words
 - warm, inspiring, and search-friendly
-- highlight benefits and everyday use cases
-- end with a soft save/click style call to action
-- should feel more expansive than the Etsy title
+- end with a soft call to action
 
 6. instagram_caption
 - warm and engaging
 - use light emojis naturally
 - include line breaks
-- include a strong parent-focused hook in the first 1–2 lines
-- mention benefits and lifestyle use
 - end with 10 to 18 relevant hashtags
 
-7. writing quality rules
-- avoid generic phrases like "perfect for" too often
-- use more vivid and natural language
-- sound premium and emotionally resonant
-- make parents imagine using this product in daily life
-- do not sound like a template
-- vary sentence openings
-
-All string values must be valid JSON strings.
-Escape line breaks as \\n inside JSON strings.
-Do not output multi-line raw strings.
-etsy_tags must contain exactly 13 items.
-
-Overall content priorities:
+Content priorities:
 - screen-free activity
 - mindfulness
-- movement and confidence
 - calm routines
+- confidence through movement
 - homeschool and travel-friendly use
-- wellness gift appeal
-- premium but practical
-
+- gift appeal
 
 Do not sound repetitive.
 Do not sound AI-generated.
-Make the copy feel unique and emotionally convincing.
 """
+
+
+def generate_campaign_variant(
+    product_name: str,
+    age_group: str,
+    product_type: str,
+    keywords: List[str],
+    angle: str,
+    description: str,
+    style_name: str,
+    style_instructions: str,
+) -> Dict[str, object]:
+    keywords = clean_keywords(keywords)
+    keyword_line = ", ".join(keywords) if keywords else "kids yoga, mindfulness, screen-free activity"
+
+    prompt = build_prompt(
+        product_name=product_name,
+        age_group=age_group,
+        product_type=product_type,
+        keyword_line=keyword_line,
+        angle=angle,
+        description=description,
+        style_name=style_name,
+        style_instructions=style_instructions,
+    )
 
     raw = call_ollama(prompt)
     result = extract_json(raw)
@@ -213,39 +309,51 @@ Make the copy feel unique and emotionally convincing.
         if key not in result:
             raise ValueError(f"❌ Missing key in model output: {key}")
 
-    tags = result.get("etsy_tags", [])
-    cleaned_tags = []
+    result["etsy_tags"] = normalize_tags(result.get("etsy_tags", []), age_group)
 
-    for t in tags:
-        tag = str(t).strip().lower()[:20]
-        if tag and tag not in cleaned_tags:
-            cleaned_tags.append(tag)
-
-    fallback_tags = [
-        "kids yoga cards",
-        "mindfulness kids",
-        "screen free",
-        "calm corner",
-        "homeschool",
-        "travel activity",
-        "yoga flashcards",
-        "mindful play",
-        "wellness gift",
-        "confidence boost",
-        "movement break",
-        "family activity",
-        "kids wellness",
-    ]
-
-    for fallback in fallback_tags:
-        fallback = fallback[:20].lower().strip()
-        if fallback not in cleaned_tags:
-            cleaned_tags.append(fallback)
-        if len(cleaned_tags) == 13:
-            break
-
-    result["etsy_tags"] = cleaned_tags[:13]
     if len(result.get("etsy_title", "")) > 140:
         result["etsy_title"] = result["etsy_title"][:140].rstrip()
 
+    if len(result.get("pinterest_title", "")) > 100:
+        result["pinterest_title"] = result["pinterest_title"][:100].rstrip()
+
     return result
+
+
+def generate_campaign_variants(
+    product_name: str,
+    age_group: str,
+    product_type: str,
+    keywords: List[str],
+    angle: str,
+    description: str,
+) -> Dict[str, Dict[str, object]]:
+    styles = {
+        "SEO Safe": """
+Focus on clear keywords, searchability, buyer intent, and practical usefulness.
+Keep the language straightforward, useful, and Etsy-friendly.
+""",
+        "Emotional Parent Hook": """
+Focus on the parent's feelings, daily struggles, calm routines, confidence-building, and the emotional benefit to the child.
+Make the copy feel comforting, supportive, and relatable.
+""",
+        "Premium Brand Voice": """
+Use elevated, polished, boutique-style wording.
+Make the product feel giftable, intentional, beautiful, and high quality without sounding snobbish.
+""",
+    }
+
+    variants = {}
+    for style_name, style_instructions in styles.items():
+        variants[style_name] = generate_campaign_variant(
+            product_name=product_name,
+            age_group=age_group,
+            product_type=product_type,
+            keywords=keywords,
+            angle=angle,
+            description=description,
+            style_name=style_name,
+            style_instructions=style_instructions,
+        )
+
+    return variants
