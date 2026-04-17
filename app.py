@@ -74,31 +74,30 @@ def auto_height(text: str, min_height: int = 120, line_px: int = 32, chars_per_l
 def smart_trim_tag(tag: str, max_len: int = 20) -> str:
     import re
 
-    tag = tag.strip()
+    tag = re.sub(r"\s+", " ", tag.strip())
+    if not tag:
+        return ""
 
     if len(tag) <= max_len:
         return tag
 
-    # clean weird punctuation / double spaces
-    tag = re.sub(r"\s+", " ", tag)
-
     words = tag.split()
-
-    trimmed = ""
+    trimmed_words = []
 
     for word in words:
-        candidate = f"{trimmed} {word}".strip()
-
+        candidate = " ".join(trimmed_words + [word])
         if len(candidate) <= max_len:
-            trimmed = candidate
+            trimmed_words.append(word)
         else:
             break
 
-    # If nothing fits, keep first word only if clean
-    if not trimmed and words:
-        trimmed = words[0][:max_len]
+    if trimmed_words:
+        return " ".join(trimmed_words).strip(" ,.-")
 
-    return trimmed.strip()
+    fallback = tag[:max_len].rstrip()
+    if " " in fallback:
+        fallback = fallback.rsplit(" ", 1)[0]
+    return fallback.strip(" ,.-")
 
 
 def normalize_etsy_tags(tag_items):
@@ -114,6 +113,12 @@ def normalize_etsy_tags(tag_items):
         tag = smart_trim_tag(tag, 20)
 
         if not tag:
+            continue
+
+        # Drop long single-token tags like "mindfulnessforkids" or
+        # "earlychildhoodeducat" because they look truncated/robotic.
+        # Let clean fallback tags replace them later.
+        if " " not in tag and "-" not in tag and len(tag) >= 16:
             continue
 
         key = tag.lower()
@@ -210,10 +215,10 @@ if submitted:
 if "variants" in st.session_state and st.session_state.variants:
     st.success("3 variants generated. Compare and choose your favorite.")
 
-if "generation_time" in st.session_state:
-    st.caption(f"Generated in {st.session_state.generation_time:.1f} seconds")
-
     tabs = st.tabs(list(st.session_state.variants.keys()))
+
+    if "generation_time" in st.session_state:
+        st.caption(f"Generated in {st.session_state.generation_time:.1f} seconds")
 
     for tab_name, tab in zip(st.session_state.variants.keys(), tabs):
         with tab:
@@ -243,12 +248,36 @@ if "generation_time" in st.session_state:
 
                 raw_tag_items = [t.strip() for t in tags_text.split(",") if t.strip()]
                 tag_items = normalize_etsy_tags(raw_tag_items)
+
+                if len(tag_items) < 13:
+                    short_fallbacks = [
+                        "kids yoga",
+                        "mindful play",
+                        "screen free",
+                        "calm corner",
+                        "movement cards",
+                        "travel activity",
+                        "wellness gift",
+                        "family activity",
+                        "homeschool",
+                        "yoga flashcards",
+                        "confidence boost",
+                        "quiet time",
+                        "kids wellness",
+                    ]
+                    seen = {tag.lower() for tag in tag_items}
+                    for fallback in short_fallbacks:
+                        if fallback.lower() not in seen:
+                            tag_items.append(fallback)
+                            seen.add(fallback.lower())
+                        if len(tag_items) == 13:
+                            break
+
                 status = tag_status(raw_tag_items)
 
                 st.caption(f"Tags: {len(tag_items)}/13")
-
-                for tag in tag_items:
-                    st.caption(f"{tag} ({len(tag)}/20)")
+                st.caption("Final Etsy tags:")
+                st.code("\n".join([f"{tag} ({len(tag)}/20)" for tag in tag_items]), language=None)
 
                 if status["too_long"]:
                     st.warning(
