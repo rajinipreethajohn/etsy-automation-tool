@@ -1,7 +1,14 @@
+import os
 import time
 import json
+from datetime import datetime
+from pathlib import Path
+from dotenv import load_dotenv
+
 import streamlit as st
 from content_engine import generate_campaign_variants
+
+load_dotenv()
 
 st.set_page_config(page_title="Etsy Automation Tool", layout="wide")
 
@@ -60,6 +67,65 @@ templates = {
     },
 }
 
+GOOGLE_SHEET_NAME = "MYB Content Queue"
+GOOGLE_SHEET_WORKSHEET = "Sheet1"
+
+
+def append_variants_to_google_sheet(product_name, age_group, product_type, marketing_angle, variants):
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+    except ImportError as exc:
+        raise RuntimeError(
+            "Google Sheets packages are not installed. Run: pip install gspread google-auth"
+        ) from exc
+
+    credentials_path = os.getenv("GOOGLE_SERVICE_ACCOUNT_PATH", "google_service_account.json")
+    credentials_path = Path(credentials_path)
+    if not credentials_path.exists():
+        raise FileNotFoundError(
+            f"Could not find Google service account credentials at '{credentials_path}'. "
+            "Set GOOGLE_SERVICE_ACCOUNT_PATH in your .env file."
+        )
+
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+
+    credentials = Credentials.from_service_account_file(
+        str(credentials_path),
+        scopes=scopes,
+    )
+    client = gspread.authorize(credentials)
+    spreadsheet = client.open(GOOGLE_SHEET_NAME)
+    worksheet = spreadsheet.worksheet(GOOGLE_SHEET_WORKSHEET)
+
+    rows = []
+    for variant_name, result in variants.items():
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        rows.append([
+            timestamp,
+            product_name,
+            age_group,
+            product_type,
+            marketing_angle,
+            variant_name,
+            result.get("etsy_title", ""),
+            ", ".join(result.get("etsy_tags", [])),
+            result.get("etsy_description", ""),
+            result.get("pinterest_title", ""),
+            result.get("pinterest_description", ""),
+            result.get("instagram_caption", ""),
+            "",
+            "",
+            "Draft",
+            "No",
+            "No",
+            "",
+        ])
+
+    worksheet.append_rows(rows, value_input_option="USER_ENTERED")
 
 def auto_height(text: str, min_height: int = 120, line_px: int = 32, chars_per_line: int = 55) -> int:
     text = text or ""
@@ -156,6 +222,19 @@ if submitted:
 
 if "variants" in st.session_state and st.session_state.variants:
     st.success("3 variants generated. Compare and choose your favorite.")
+
+    if st.button("Send 3 Variants to Google Sheet"):
+        try:
+            append_variants_to_google_sheet(
+                product_name=st.session_state.get("product_name_input", ""),
+                age_group=st.session_state.get("age_group_input", ""),
+                product_type=st.session_state.get("product_type_input", ""),
+                marketing_angle=st.session_state.get("angle_input", ""),
+                variants=st.session_state.variants,
+            )
+            st.success("Sent 3 variants to MYB Content Queue.")
+        except Exception as exc:
+            st.error(f"Could not send variants to Google Sheet: {exc}")
 
     tabs = st.tabs(list(st.session_state.variants.keys()))
 
