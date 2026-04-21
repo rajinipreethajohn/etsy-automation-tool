@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 import streamlit as st
 from content_engine import generate_campaign_variants
+from post_to_pinterest import post_to_pinterest
 
 load_dotenv()
 
@@ -393,3 +394,99 @@ Caption:
                     mime="text/plain",
                     key=f"{tab_name}_txt_download",
                 )
+
+            st.divider()
+            st.subheader("📋 Copy to Clipboard")
+
+            pinterest_content = f"""Pinterest Title:
+{pinterest_title}
+
+Pinterest Description:
+{pinterest_description}"""
+
+            st.text_area(
+                "Pinterest Content (click, select all, copy)",
+                pinterest_content,
+                height=150,
+                disabled=True,
+                key=f"{tab_name}_pinterest_copy",
+            )
+
+            pin_col1, pin_col2 = st.columns([3, 1])
+
+            with pin_col1:
+                etsy_link = st.text_input(
+                    "Etsy Link for Pin",
+                    "https://www.etsy.com/shop/MindfulYogiBoutique",
+                    key=f"{tab_name}_pin_link",
+                    help="URL that the pin will link to (typically your Etsy listing)",
+                )
+
+            with pin_col2:
+                if st.button(
+                    "📌 Post to Pinterest",
+                    key=f"{tab_name}_post_pinterest",
+                    help="Post this pin to Pinterest (requires API approval)",
+                ):
+                    token = os.getenv("PINTEREST_ACCESS_TOKEN")
+                    board_id = os.getenv("PINTEREST_BOARD_ID")
+
+                    if not token:
+                        st.error(
+                            "❌ **Pinterest API not configured**\n\n"
+                            "Add `PINTEREST_ACCESS_TOKEN` to your `.env` file. "
+                            "You'll get this after Pinterest approves your API access.\n\n"
+                            "[Apply for Pinterest API access](https://developers.pinterest.com/)"
+                        )
+                    elif not board_id:
+                        st.error(
+                            "❌ **Pinterest Board ID not configured**\n\n"
+                            "Add `PINTEREST_BOARD_ID` to your `.env` file.\n\n"
+                            "Find your board ID by:\n"
+                            "1. Go to your Pinterest board\n"
+                            "2. Check the URL: `pinterest.com/username/boardname/` → the numeric ID is in your account settings"
+                        )
+                    else:
+                        with st.spinner("Posting to Pinterest..."):
+                            result = post_to_pinterest(
+                                title=pinterest_title,
+                                description=pinterest_description,
+                                link=etsy_link,
+                                image_url="https://via.placeholder.com/1000x1500?text=Yoga+Cards",
+                                board_id=board_id,
+                            )
+
+                        if result["success"]:
+                            st.success(
+                                f"✅ **Pin posted successfully!**\n\n"
+                                f"Pin ID: `{result['pin_id']}`"
+                            )
+                        else:
+                            if result["status_code"] == 403:
+                                st.error(
+                                    f"❌ **Pinterest API access denied (403)**\n\n"
+                                    "Your API credentials may not be approved yet or are invalid.\n\n"
+                                    "Message: {result['error_detail']}"
+                                )
+                            elif result["status_code"] == 401:
+                                st.error(
+                                    f"❌ **Authentication failed (401)**\n\n"
+                                    "Check your PINTEREST_ACCESS_TOKEN in `.env`"
+                                )
+                            else:
+                                st.error(
+                                    f"❌ **Failed to post pin**\n\n"
+                                    f"{result['message']}\n\n"
+                                    f"Error: {result['error_detail']}"
+                                )
+
+            instagram_content = f"""Instagram Caption:
+{instagram_caption}"""
+
+            st.text_area(
+                "Instagram Content (click, select all, copy)",
+                instagram_content,
+                height=180,
+                disabled=True,
+                key=f"{tab_name}_instagram_copy",
+            )
