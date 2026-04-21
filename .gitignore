@@ -2,4 +2,4 @@
 __pycache__/
 *.pyc
 .DS_Store
-.env
+.envgoogle_service_account.json
