@@ -490,3 +490,52 @@ Pinterest Description:
                 disabled=True,
                 key=f"{tab_name}_instagram_copy",
             )
+
+            ig_col1, ig_col2 = st.columns([3, 1])
+
+            with ig_col1:
+                ig_image_url = st.text_input(
+                    "Image URL for Instagram",
+                    "https://i.etsystatic.com/63134872/r/il/ecc883/7917620690/il_794xN.7917620690_81yf.jpg",
+                    key=f"{tab_name}_ig_image_url",
+                    help="Public image URL to post on Instagram",
+                )
+
+            with ig_col2:
+                if st.button(
+                    "📸 Post to Instagram",
+                    key=f"{tab_name}_post_instagram",
+                    help="Post this to Instagram",
+                ):
+                    access_token = os.getenv("INSTAGRAM_ACCESS_TOKEN")
+                    user_id = os.getenv("INSTAGRAM_USER_ID")
+
+                    if not access_token:
+                        st.error(
+                            "❌ **Instagram API not configured**\n\n"
+                            "Add `INSTAGRAM_ACCESS_TOKEN` to your `.env` file."
+                        )
+                    elif not user_id:
+                        st.error(
+                            "❌ **Instagram User ID not configured**\n\n"
+                            "Add `INSTAGRAM_USER_ID` to your `.env` file."
+                        )
+                    else:
+                        with st.spinner("Posting to Instagram..."):
+                            from post_to_instagram import post_to_instagram
+                            ig_result = post_to_instagram(
+                                caption=instagram_caption,
+                                image_url=ig_image_url,
+                            )
+
+                        if ig_result["success"]:
+                            st.success(
+                                f"✅ **Posted to Instagram!**\n\n"
+                                f"Post ID: `{ig_result['post_id']}`"
+                            )
+                        else:
+                            st.error(
+                                f"❌ **Failed to post**\n\n"
+                                f"{ig_result['message']}\n\n"
+                                f"Error: {ig_result.get('error_detail', 'Unknown error')}"
+            )
