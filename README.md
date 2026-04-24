@@ -184,13 +184,43 @@ This generates pose-specific Etsy, Pinterest, and Instagram content with benefit
 
 ### Publishing Flow
 
+#### Single Image Post
+
 ```
-Generate content in Streamlit
+Generate content in Streamlit (Tab 1)
         ↓
-Post to Instagram (working ✅)
+Generate lifestyle image in ChatGPT
+        ↓
+Save as 1.png → assets/toddler/ (or relevant age group folder)
+        ↓
+git add assets/ && git commit -m "add image" && git push
+        ↓
+Streamlit Tab 2 → select image → paste/select caption → Post ✅
+        ↓
+Instagram post live 🎨
         ↓
 Auto-posts to Pinterest (via connected accounts ✅)
 ```
+
+#### Carousel Post (3 Slides)
+
+```
+Generate 3 slides in ChatGPT (Hook / Product Proof / Benefits)
+        ↓
+Save as 1.png, 2.png, 3.png → assets/toddler/
+        ↓
+git add assets/ && git commit -m "add carousel images" && git push
+        ↓
+Streamlit Tab 2 → multiselect 1.png, 2.png, 3.png → paste caption → Post ✅
+        ↓
+Instagram carousel live 🎨
+        ↓
+Optionally convert to Reel + add music in Instagram app 🎵
+        ↓
+Auto-posts to Pinterest (via connected accounts ✅)
+```
+
+> **Note:** GitHub raw URLs work with Instagram API but may take a few seconds after pushing to propagate. If posting fails immediately after a push, wait 10–15 seconds and try again.
 
 ---
 
